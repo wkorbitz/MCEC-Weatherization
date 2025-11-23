@@ -82,7 +82,7 @@ params.nu_el  = [-1, 1, 0, 0, 0]';      % H2 + O^2- -> H2O
 % params.z = 0:params.dz:params.L;
 
 %% Chebyshev
-params.Nz = 20; % Total number of points
+params.Nz = 200; % Total number of points
 %1. Define the polynomial order (N+1 points, where N = Nz - 1)
 N = params.Nz - 1;
 
@@ -473,12 +473,12 @@ function [F_of_C, r_WGS, r_SMR] = compute_F(C, params)
     C_inlet = params.x_inlet * (params.p_inlet / (params.R * params.T));
     %% - INLET BOUNDARY CONDITIONS HAVE TO BE ENFORCED AT EVERY TIME STEP
 
-    %C(:,1) = C_inlet;  % Force concentration at fuel channel
+    C(:,1) = C_inlet;  % Force concentration at fuel channel
     %h = [z(end) - z(end-1), z(end) - z(end-2)];
     %b = 1 / (h(1)^2/h(2) - h(1));
     %c = -b*h(1)^2/h(2)^2;
     %a = -b-c;
-    %C(:, end) = (b*C(:,end-1) + c*C(:, end-2))/a; % 3-point 1st derivative
+    C(:, end) = C(:,end-1); % 3-point 1st derivative
 
     %% - Continue Calculations
     C_tot = sum(C, 1);
