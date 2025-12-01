@@ -82,7 +82,7 @@ params.nu_el  = [-1, 1, 0, 0, 0]';      % H2 + O^2- -> H2O
 % params.z = 0:params.dz:params.L;
 
 %% Chebyshev
-params.Nz = 200; % Total number of points
+params.Nz = 100; % Total number of points
 %1. Define the polynomial order (N+1 points, where N = Nz - 1)
 N = params.Nz - 1;
 
@@ -156,7 +156,7 @@ options = odeset( ...
     'Stats', 'on');   % Display solver statistics
 
 % --- 4. Call the solver ---
-[t_sol, C_sol_vectors] = ode45(@(t,y) rhs_sofc(t, y, params), tspan, y0, options);
+[t_sol, C_sol_vectors] = ode15s(@(t,y) rhs_sofc(t, y, params), tspan, y0, options);
 toc
 
 % --- 5. Plot results ---
@@ -620,9 +620,11 @@ function [F_of_C, r_WGS, r_SMR] = compute_F(C, params)
     r_WGS = k_f_WGS .* p_CO .^ gamma_CO .* p_H2O .^ delta_H2O .* p_CO2 .^ chi_CO2 .* driving_WGS .* params.length_char;
 
     driving_SMR = 1 - psi_eq_SMR;
-
+    
     r_SMR = k_f_SMR .* p_CH4 .^ alpha_CH4 .* p_H2O .^ beta_H2O .* driving_SMR .* params.length_char;
-
+    
+    sprintf("ksWGS = %d, kfSMR=%d",k_f_WGS,k_f_SMR)
+    sprintf("driving WGS = %d, SMR = %d",driving_WGS, driving_SMR)
     S_het = params.a_V * (params.nu_WGS * r_WGS + params.nu_SMR * r_SMR); % mol/m^3-s
 
     % % 2. Electrochemical Source Term (S_el)
