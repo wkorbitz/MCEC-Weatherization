@@ -35,8 +35,8 @@ params.p_inlet = 101325; % [Pa]
 
 % --- Physical Constants & Properties
 params.A = 80e-4; % [m^2] Electrode active area
-params.w = sqrt(params.A); % [m] Width of fuel channel or entire electrode
-params.cv_length = sqrt(params.A); % length of control volume is wonky
+params.w = 15 * sqrt(params.A); % [m] Width of fuel channel or entire electrode
+params.cv_length = sqrt(params.A) / 15; % length of control volume is wonky
 
 params.R = 8.314; % [J/mol-K]
 params.F = 96485.33; % [C/mol]
@@ -93,15 +93,20 @@ k_indices = N:-1:0;
 % 3. Calculate the standard Chebyshev nodes on the interval [-1, 1]
 % x_k = cos(k*pi / N)
 cheb_nodes_11 = cos(k_indices * pi / N);
+ghost = 2*cheb_nodes_11(N+1) - cheb_nodes_11(N);
 
 % 4. Map the nodes from [-1, 1] to the physical domain [0, L]
 % The mapping is z = L * (x + 1) / 2
 params.z = (params.L / 2) * (cheb_nodes_11 + 1);
+params.zg = (params.L / 2) * (ghost + 1);
 
 % 4. Ensure the start and end points are exact
 params.z(1) = 0;
 params.z(end) = params.L;
 
+params.zplot = params.z;
+params.z = params.z(2:end);
+params.Nz=params.Nz-1;
 % --- Calculate the non-uniform step sizes (for reference) ---
 params.dz_vec = diff(params.z);
 
@@ -122,7 +127,8 @@ params.B_g = params.epsilon^3*(params.d_p)^2/(72*params.tau*(1-params.epsilon)^2
 x_inlet = x_inlet / sum(x_inlet);
 params.x_inlet = x_inlet;
 C_tot_inlet = params.p_inlet / (params.R * params.T);
-C_init = repmat(x_inlet * C_tot_inlet, 1, params.Nz);
+params.C_inlet = x_inlet * C_tot_inlet;
+C_init = repmat(params.C_inlet, 1, params.Nz);
 
 %% --- Start of Simulation ---
 fprintf('==================================================\n');
@@ -136,7 +142,6 @@ t_start = 0;
 t_char = params.L^2/min_diffusivity;
 t_end = 5 * t_char;
 tspan = [t_start, t_end];
-
 
 y0 = C_init(:); % Must be a vector
 
@@ -158,6 +163,11 @@ options = odeset( ...
 % --- 4. Call the solver ---
 [t_sol, C_sol_vectors] = ode15s(@(t,y) rhs_sofc(t, y, params), tspan, y0, options);
 toc
+params.Nt = numel(t_sol);
+C_sol_inlet = repmat(params.C_inlet', params.Nt, 1);
+%C_sol_vectors = [C_sol_inlet, C_sol_vectors];
+%params.z = params.zplot;
+%params.Nz=params.Nz+1;
 
 % --- 5. Plot results ---
 
@@ -466,61 +476,62 @@ end
 function [F_of_C, r_WGS, r_SMR] = compute_F(C, params)
     [Ns, Nz] = size(C);
     z = params.z;
-    J = zeros(Ns, Nz);
+    %J = zeros(Ns, Nz);
 
     % --- Transport Term (Flux Calculation) ---
     % This part remains the same as it correctly models the Dusty-Gas Model
     C_inlet = params.x_inlet * (params.p_inlet / (params.R * params.T));
     %% - INLET BOUNDARY CONDITIONS HAVE TO BE ENFORCED AT EVERY TIME STEP
 
-    C(:,1) = C_inlet;  % Force concentration at fuel channel
+    %C(:,1) = C_inlet;  % Force concentration at fuel channel
     %h = [z(end) - z(end-1), z(end) - z(end-2)];
     %b = 1 / (h(1)^2/h(2) - h(1));
     %c = -b*h(1)^2/h(2)^2;
     %a = -b-c;
-    C(:, end) = C(:,end-1); % 3-point 1st derivative
+    %C(:, end) = C(:,end-1); % 3-point 1st derivative
 
     %% - Continue Calculations
     C_tot = sum(C, 1);
     P = C_tot * params.R * params.T;
+    P_inlet = sum(params.x_inlet,1) * params.R * params.T;
     X = C ./ C_tot;
     dJdz = zeros(Ns, Nz);
     
     % build one-sided stencil coefficients
-    h1 = z(2)-z(1);
-    h2 = z(3)-z(1);
+    h1 = z(1);
+    h2 = z(2)-z(1);
     hN1 = z(Nz) - z(Nz-1);
-    hN2 = z(Nz) - z(Nz-2);
-    gRb = 1/(-hN1 + hN1^2/hN2); gRc = (-hN1^2/hN2^2)*gRb; gRa=-gRb-gRc;
-    gradR = [gRa,gRb,gRc];
-    gLb = 1/(h1 - h1^2/h2); gLc = (-h1^2/h2^2)*gLb; gLa=-gLb-gLc;
+    %hN2 = hN1;
+    %gRb = 1/(-hN1 + hN1^2/hN2); gRc = (-hN1^2/hN2^2)*gRb; gRa=-gRb-gRc;
+    %gradR = [gRa,gRb,gRc];
+    gLa = 1/(-h1 - h1^2/h2); gLc = (-h1^2/h2^2)*gLa; gLb=-gLa-gLc;
     gradL = [gLa,gLb,gLc];
     lLb = 1/(h1^2 - h1*h2); lLc = (-h1/h2)*lLb; lLa=-lLb-lLc;
     lapL = [lLa,lLb,lLc];
-    lRb = 1/(hN1^2 - hN1*hN2); lRc = (-hN1/hN2)*lRb; lRa=-lRb-lRc;
-    lapR = [lRa,lRb,lRc];
+    %lRb = 1/(hN1^2 - hN1*hN2); lRc = (-hN1/hN2)*lRb; lRa=-lRb-lRc;
+    %lapR = [lRa,lRb,lRc];
     
-    % build left-hand (z=0) terms
-    X_local = C_inlet / C_tot(1);
+    % build left-hand (z_1) terms
+    X_local = C(1) / C_tot(1);
     H = build_H_matrix(X_local, params.D_eff_binary, params.D_Kn);
     D_DGM = H \ eye(Ns);
-    grad_X = gradL(1)*X(:,1) + gradL(2)*X(:,2) + gradL(3)*X(:,3);
-    grad_P = gradL(1)*P(1) + gradL(2)*P(2) + gradL(3)*P(3);
-    lap_X = lapL(1)*X(:,1) + lapL(2)*X(:,2) + lapL(3)*X(:,3);
-    lap_P = lapL(1)*P(1) + lapL(2)*P(2) + lapL(3)*P(3);
+    grad_X = gradL(1)*params.x_inlet + gradL(2)*X(:,1) + gradL(3)*X(:,2);
+    grad_P = gradL(1)*P_inlet + gradL(2)*P(1) + gradL(3)*P(2);
+    lap_X = lapL(1)*params.x_inlet + lapL(2)*X(:,1) + lapL(3)*X(:,2);
+    lap_P = lapL(1)*P_inlet + lapL(2)*P(1) + lapL(3)*P(2);
     dJdz(:,1) = -D_DGM*lap_X - (params.B_g / params.mu) * ...
-        (grad_X*grad_P + X(:,1)*lap_P);
+        (grad_X*grad_P + params.x_inlet*lap_P);
 
-    % build right-hand (z=L) terms
+    % build right-hand (z_N) terms
     X_local = X(:, Nz);
     H = build_H_matrix(X_local, params.D_eff_binary, params.D_Kn);
     D_DGM = H \ eye(Ns);
-    grad_X = 0;
-    grad_P = gradR(1)*P(Nz) + gradR(2)*P(Nz-1) + gradR(3)*P(Nz-2);
-    lap_X = lapR(1)*X(:,Nz) + lapR(2)*X(:,Nz-1) + lapR(3)*X(:,Nz-2);
-    lap_P = lapR(1)*P(Nz) + lapR(2)*P(Nz-1) + lapR(3)*P(Nz-2);
-    dJdz(:,Nz) = -D_DGM * lap_X - (params.B_g / params.mu) * ...
-        (grad_X*grad_P + X(:,1)*lap_P);
+    %grad_X = 0;
+    %grad_P = gradR(1)*P(Nz) + gradR(2)*P(Nz-1) + gradR(3)*P(Nz-2);
+    %P inherits neumann BC from X
+    lap_X = 2*(X(:,Nz-1)-X(:,Nz))/hN1^2;
+    lap_P = 2*(P(:,Nz-1)-P(:,Nz))/hN1^2;
+    dJdz(:,Nz) = -D_DGM * lap_X - (params.B_g / params.mu) * X(:,Nz)*lap_P;
 
     for i = 2:Nz-1
         X_local = X(:, i);
@@ -536,7 +547,7 @@ function [F_of_C, r_WGS, r_SMR] = compute_F(C, params)
         % grad_P = (P(:, i+1) - P(:, i-1)) / ((z(i+1) - z(i-1))); % scalar
         grad_P = (P(i+1) - P(i-1)) / (z(i+1) - z(i-1));
         lap_P = kp*P(i+1) + kn*P(i-1) + k*P(i);
-        kn_term = D_DGM * (X_local ./ params.D_Kn);
+        %kn_term = D_DGM * (X_local ./ params.D_Kn);
         dJdz(:,i) = -D_DGM * lap_X - (params.B_g / params.mu) * ...
             (grad_X*grad_P + X(:,i)*lap_P);
         %J(:,i) = -D_DGM * grad_X - (params.B_g / params.mu) * kn_term * grad_P;
@@ -623,8 +634,8 @@ function [F_of_C, r_WGS, r_SMR] = compute_F(C, params)
     
     r_SMR = k_f_SMR .* p_CH4 .^ alpha_CH4 .* p_H2O .^ beta_H2O .* driving_SMR .* params.length_char;
     
-    sprintf("ksWGS = %d, kfSMR=%d",k_f_WGS,k_f_SMR)
-    sprintf("driving WGS = %d, SMR = %d",driving_WGS, driving_SMR)
+    %sprintf("ksWGS = %d, kfSMR=%d",k_f_WGS,k_f_SMR)
+    %sprintf("driving WGS = %d, SMR = %d",driving_WGS, driving_SMR)
     S_het = params.a_V * (params.nu_WGS * r_WGS + params.nu_SMR * r_SMR); % mol/m^3-s
 
     % % 2. Electrochemical Source Term (S_el)
