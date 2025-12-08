@@ -598,6 +598,8 @@ function [F_of_C, r_WGS, r_SMR] = compute_F(C, params)
 
     K_eq_SMR = exp(-deltaG_r_SMR / (params.R * params.T));
     K_eq_WGS = exp(-deltaG_r_WGS / (params.R * params.T));
+    
+    %sprintf("keqWGS = %d, keqSMR=%d",K_eq_WGS,K_eq_SMR)
 
     % 4. Calculate the Equilibrium Term (psi_eq)
     Kp_WGS = (p_H2 .* p_CO2) ./ (p_H2O .* p_CO);
